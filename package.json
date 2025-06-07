@@ -1,9 +1,9 @@
 {
   "name": "miniproject",
   "version": "1.0.0",
-  "main": "app.js",
+  "main": "app.jsx",
   "scripts": {
-    "dev": "vite",
+    "dev": "vite --mode development",
     "build": "vite build",
     "preview": "vite preview"
   },
