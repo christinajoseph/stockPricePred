@@ -4,15 +4,46 @@ import pandas as pd
 import joblib
 import numpy as np
 import os
+from flask_sqlalchemy import SQLAlchemy
+import click
 
-# --- 1. Initialize Flask App ---
+# --- 1. Initialize Flask App & Database ---
 app = Flask(__name__)
-# Enable Cross-Origin Resource Sharing (CORS) to allow requests from our React frontend
 CORS(app) 
 
-# --- 2. Load Models and Required Objects ---
-# Load the machine learning models, scaler, and feature list when the app starts.
-# This is more efficient than loading them for every request.
+# Database Configuration
+# This sets up the path to our SQLite database file.
+basedir = os.path.abspath(os.path.dirname(__file__))
+app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + os.path.join(basedir, 'commodities.db')
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+
+# Initialize the database extension
+db = SQLAlchemy(app)
+
+
+# --- 2. Database Models ---
+# We define our database table structure as a Python class.
+# This 'PriceData' class corresponds to a 'price_data' table in the database.
+class PriceData(db.Model):
+    __tablename__ = 'price_data'
+    id = db.Column(db.Integer, primary_key=True)
+    date = db.Column(db.String(10), nullable=False) # Storing date as string for simplicity
+    price = db.Column(db.Float, nullable=False)
+    commodity = db.Column(db.String(50), nullable=False)
+    location = db.Column(db.String(50), nullable=False)
+
+    def to_dict(self):
+        """Converts the model instance to a dictionary, which can be easily converted to JSON."""
+        return {
+            'id': self.id,
+            'date': self.date,
+            'price': self.price,
+            'commodity': self.commodity,
+            'location': self.location,
+        }
+
+# --- 3. Load ML Models ---
+# This part remains the same.
 MODELS_DIR = 'models'
 try:
     rf_model = joblib.load(os.path.join(MODELS_DIR, 'random_forest_model.pkl'))
@@ -21,81 +52,49 @@ try:
     model_features = joblib.load(os.path.join(MODELS_DIR, 'features.pkl'))
     print("Models loaded successfully.")
 except FileNotFoundError:
-    print("Error: Model files not found. Please run train_model.py first.")
+    print("Warning: Model files not found. Prediction endpoint will not work. Run train_model.py.")
     rf_model = mlp_model = scaler = model_features = None
-
-
-# --- 3. Mock Database / Data ---
-# In a real app, this data would come from a MySQL or SQLite database.
-# This data structure matches the mock data used in your React App.js.
-HISTORICAL_DATA = [
-  {'id': 1, 'date': '2023-01-01', 'price': 100, 'commodity': 'Wheat', 'location': 'North Farm'},
-  {'id': 2, 'date': '2023-01-08', 'price': 105, 'commodity': 'Wheat', 'location': 'North Farm'},
-  {'id': 3, 'date': '2023-01-15', 'price': 110, 'commodity': 'Wheat', 'location': 'North Farm'},
-  {'id': 4, 'date': '2023-01-01', 'price': 200, 'commodity': 'Corn', 'location': 'South Farm'},
-  {'id': 5, 'date': '2023-01-08', 'price': 202, 'commodity': 'Corn', 'location': 'South Farm'},
-  {'id': 6, 'date': '2023-01-15', 'price': 198, 'commodity': 'Corn', 'location': 'South Farm'},
-  {'id': 7, 'date': '2023-01-01', 'price': 150, 'commodity': 'Soybeans', 'location': 'East Farm'},
-  {'id': 8, 'date': '2023-01-08', 'price': 155, 'commodity': 'Soybeans', 'location': 'East Farm'},
-]
 
 
 # --- 4. API Routes ---
 
 @app.route('/')
 def index():
-    """A simple welcome route to check if the server is running."""
     return "Welcome to the Stock Price Tracker Backend!"
 
 @app.route('/api/prices/history', methods=['GET'])
 def get_historical_prices():
     """
-    API endpoint to get historical price data.
-    In a real app, you would add query parameters to filter by commodity, location, etc.
-    e.g., /api/prices/history?commodity=Wheat
+    API endpoint to get historical price data FROM THE DATABASE.
     """
     commodity_filter = request.args.get('commodity')
     location_filter = request.args.get('location')
     
-    filtered_data = HISTORICAL_DATA
+    # Start with a query on the PriceData table
+    query = PriceData.query
+
     if commodity_filter and commodity_filter != 'All':
-        filtered_data = [d for d in filtered_data if d['commodity'] == commodity_filter]
+        query = query.filter(PriceData.commodity == commodity_filter)
     if location_filter and location_filter != 'All':
-         filtered_data = [d for d in filtered_data if d['location'] == location_filter]
+        query = query.filter(PriceData.location == location_filter)
+
+    # Execute the query and convert results to a list of dictionaries
+    results = query.all()
+    filtered_data = [row.to_dict() for row in results]
 
     return jsonify(filtered_data)
 
-@app.route('/api/prices/live', methods=['GET'])
-def get_live_prices():
-    """
-    API endpoint to simulate fetching live prices.
-    This just returns the latest entry from our mock data for each commodity.
-    """
-    live_prices = {
-        'Wheat': {'price': 112, 'change': '+1.8%'},
-        'Corn': {'price': 205, 'change': '-0.5%'},
-        'Soybeans': {'price': 158, 'change': '+2.1%'}
-    }
-    return jsonify(live_prices)
-
+# The /api/predict route remains the same, no database interaction needed for it yet.
 @app.route('/api/predict', methods=['POST'])
 def predict():
-    """
-    API endpoint for making price predictions.
-    It expects a JSON payload with features for the prediction.
-    """
     if not all([rf_model, mlp_model, scaler, model_features]):
         return jsonify({"error": "Models are not loaded. Cannot make predictions."}), 500
 
-    # Get the JSON data sent from the frontend
     data = request.get_json()
     if not data:
         return jsonify({"error": "Invalid input"}), 400
 
-    # Example input: {'date': '2024-07-15', 'commodity': 'Wheat', 'location': 'North Farm'}
     try:
-        # --- Feature Engineering for Prediction ---
-        # Create a DataFrame from the input data
         future_date = pd.to_datetime(data['date'])
         input_df = pd.DataFrame([{
             'day_of_year': future_date.dayofyear,
@@ -105,27 +104,13 @@ def predict():
             'location_North Farm': 1 if data['location'] == 'North Farm' else 0,
             'location_South Farm': 1 if data['location'] == 'South Farm' else 0,
         }])
-
-        # Align columns with the model's training features
-        # This ensures all required columns are present and in the correct order
         input_df = input_df.reindex(columns=model_features, fill_value=0)
 
-        # --- Make Prediction ---
-        # Use Random Forest for the main prediction
         predicted_price = rf_model.predict(input_df)[0]
-        
-        # Use MLP for another perspective or as part of an ensemble
-        # input_scaled = scaler.transform(input_df)
-        # mlp_prediction = mlp_model.predict(input_scaled)[0]
-
-        # --- Create a Confidence Interval ---
-        # For a Random Forest, we can use the predictions of individual trees
-        # to estimate a prediction interval.
         individual_tree_preds = [tree.predict(input_df)[0] for tree in rf_model.estimators_]
-        confidence_min = np.percentile(individual_tree_preds, 5)  # 90% confidence
+        confidence_min = np.percentile(individual_tree_preds, 5)
         confidence_max = np.percentile(individual_tree_preds, 95)
         
-        # Prepare the response
         response = {
             'predictedPrice': round(predicted_price, 2),
             'confidenceMin': round(confidence_min, 2),
@@ -138,3 +123,38 @@ def predict():
 
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+
+# --- 5. Database Initialization Command ---
+# This creates a new command that you can run from your terminal to set up the DB.
+@app.cli.command("init-db")
+def init_db_command():
+    """Clears existing data and creates new tables with Indian commodity data."""
+    with app.app_context():
+        db.drop_all() # Deletes all tables
+        db.create_all() # Creates all tables based on db.Model classes
+
+        # Seed the database with some initial, relevant data for Telangana
+        # We will fetch live data later, but this gives us a starting point.
+        initial_indian_data = [
+          {'date': '2023-11-01', 'price': 2100, 'commodity': 'Rice', 'location': 'Bowenpally'},
+          {'date': '2023-11-08', 'price': 2150, 'commodity': 'Rice', 'location': 'Bowenpally'},
+          {'date': '2023-11-01', 'price': 1950, 'commodity': 'Maize', 'location': 'Gudimalkapur'},
+          {'date': '2023-11-08', 'price': 1975, 'commodity': 'Maize', 'location': 'Gudimalkapur'},
+          {'date': '2023-11-01', 'price': 7200, 'commodity': 'Cotton', 'location': 'Erragadda'},
+          {'date': '2023-11-08', 'price': 7150, 'commodity': 'Cotton', 'location': 'Erragadda'},
+          {'date': '2023-11-01', 'price': 9500, 'commodity': 'Red Gram', 'location': 'Bowenpally'},
+          {'date': '2023-11-08', 'price': 9600, 'commodity': 'Red Gram', 'location': 'Bowenpally'},
+        ]
+
+        for item in initial_indian_data:
+            new_price_data = PriceData(**item)
+            db.session.add(new_price_data)
+        
+        db.session.commit()
+        click.echo("Initialized and seeded the database with Telangana commodity data.")
+
+
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=5000, debug=True)
+
