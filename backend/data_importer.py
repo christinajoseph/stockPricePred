@@ -1,66 +1,44 @@
-import requests
-import json
-from app import db, PriceData, app  # Import db objects from your main app
+import pandas as pd
+from app import db, PriceData, app  # Import SQLAlchemy and your model
+import os
 
-# IMPORTANT: Replace with your actual API key from data.gov.in
-API_KEY = "579b464db66ec23bdd000001336c816ed19940b97f6d3d7c35597854"
-API_URL = "https://api.data.gov.in/resource/9ef84268-d588-465a-a308-a864a43d0070"
+# Path to your static CSV file
+CSV_PATH = os.path.join('data', 'commodity_prices.csv')
 
-def fetch_and_store_data():
-    """Fetches data from the government API and stores it in the database."""
+def import_from_csv():
+    """Reads data from static CSV and inserts into the database."""
     
-    params = {
-        'api-key': API_KEY,
-        'format': 'json',
-        'offset': '0',
-        'limit': '500', # Fetch up to 500 records
-        'filters[state]': 'Telangana' # Filter for Telangana
-    }
-
     try:
-        print("Fetching data from data.gov.in API...")
-        response = requests.get(API_URL, params=params)
-        response.raise_for_status()  # Raises an exception for bad status codes (4xx or 5xx)
-        
-        data = response.json()
-        records = data.get('records', [])
-        
-        if not records:
-            print("No records found for Telangana.")
+        print("Reading CSV data from:", CSV_PATH)
+        df = pd.read_csv(CSV_PATH)
+
+        if df.empty:
+            print("CSV file is empty.")
             return
 
-        print(f"Found {len(records)} records. Processing and storing...")
-
-        with app.app_context(): # Create an app context to interact with the database
-            for record in records:
-                # Check if a record with the same details already exists to avoid duplicates
+        with app.app_context():
+            for _, row in df.iterrows():
+                # Avoid duplicate entries
                 exists = PriceData.query.filter_by(
-                    date=record.get('arrival_date'),
-                    commodity=record.get('commodity'),
-                    location=record.get('market')
+                    date=row['arrival_date'],
+                    commodity=row['commodity'],
+                    location=row['market']
                 ).first()
 
                 if not exists:
-                    # Create a new PriceData object and add it to the database session
-                    new_price = PriceData(
-                        date=record.get('arrival_date'),
-                        price=float(record.get('modal_price', 0)), # Modal price is the most frequent price
-                        commodity=record.get('commodity'),
-                        location=record.get('market')
+                    new_entry = PriceData(
+                        date=row['arrival_date'],
+                        price=float(row['modal_price']),
+                        commodity=row['commodity'],
+                        location=row['market']
                     )
-                    db.session.add(new_price)
+                    db.session.add(new_entry)
             
-            # Commit all the new records to the database
             db.session.commit()
-            print("Data import complete. New records have been added to the database.")
+            print("CSV data imported successfully.")
 
-    except requests.exceptions.RequestException as e:
-        print(f"Error fetching data from API: {e}")
-    except json.JSONDecodeError:
-        print("Error: Could not decode JSON response. The API might be down or returned invalid data.")
     except Exception as e:
-        print(f"An unexpected error occurred: {e}")
-
+        print(f"Error importing from CSV: {e}")
 
 if __name__ == '__main__':
-    fetch_and_store_data()
+    import_from_csv()

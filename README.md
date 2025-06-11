@@ -67,6 +67,7 @@ pip install -r requirements.txt
 Get a Government Data API Key:
 
 Go to data.gov.in and register for a free account.
+Variety-wise Daily Market Prices Data
 
 Find and subscribe to the "Variety-wise Daily Market Prices Data of Commodity" API to get your API Key.
 
@@ -91,6 +92,8 @@ export FLASK_APP=app
 flask init-db
 
 Import Live Data:
+pip install requests
+to install in system or virtual environment: .\venv\Scripts\activate
 This script fetches the latest data from the government API and populates your database.
 
 python data_importer.py
