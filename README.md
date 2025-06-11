@@ -11,29 +11,17 @@ Category
 
 Technology / Library
 
-Frontend
+Frontend: React.js, Recharts (for charts), Tailwind CSS (for styling)
 
-React.js, Recharts (for charts), Tailwind CSS (for styling)
+Backend: Python, Flask
 
-Backend
+Database: SQLite (via Flask-SQLAlchemy)
 
-Python, Flask
+ML Models: Scikit-learn (Random Forest, MLP), Joblib
 
-Database
+Data Source: data.gov.in (AGMARKNET API)
 
-SQLite (via Flask-SQLAlchemy)
-
-ML Models
-
-Scikit-learn (Random Forest, MLP), Joblib
-
-Data Source
-
-data.gov.in (AGMARKNET API)
-
-Development
-
-Vite.js (Frontend build tool)
+Development: Vite.js (Frontend build tool)
 
 ✨ Features
 Localized Data: Displays prices for key crops like Rice, Maize, and Cotton from markets in Telangana.
@@ -50,7 +38,7 @@ Persistent Storage: Uses an SQLite database to store and serve historical market
 
 Responsive UI: Clean, modern interface that works on different screen sizes.
 
-🚀 Setup and Installation Instructions
+Setup and Installation Instructions
 To get this project running locally, you will need to set up both the backend server and the frontend application.
 
 Prerequisites:
